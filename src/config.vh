@@ -24,7 +24,7 @@ Only this file changes between the repositories:
 // ============================================================================
 
 // Length of one stochastic bitstream
-`define STREAM_LENGTH      1024
+`define STREAM_LENGTH      512
 
 // Number of stochastic streams stored in the Sobol ROM
 // (101 probabilities × 2 independent Sobol streams)
@@ -69,6 +69,6 @@ Only this file changes between the repositories:
 //
 // For 512 × 128 = 65536
 //
-`define ACC_WIDTH          18
+`define ACC_WIDTH          17
 
 `endif

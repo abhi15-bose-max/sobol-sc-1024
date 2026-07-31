@@ -1,0 +1,151 @@
+name: Sobol FPGA Place and Route (ECP5)
+
+on:
+  workflow_dispatch:
+
+jobs:
+  pnr:
+
+    runs-on: ubuntu-latest
+
+    steps:
+
+      ############################################################
+      # Checkout
+      ############################################################
+
+      - name: Checkout Repository
+        uses: actions/checkout@v4
+
+      ############################################################
+      # Install FPGA Tools
+      ############################################################
+
+      - name: Install FPGA Tools
+        run: |
+          sudo apt update
+          sudo apt install -y yosys nextpnr-ecp5
+
+      ############################################################
+      # Verify Installation
+      ############################################################
+
+      - name: Verify Tool Installation
+        run: |
+          echo "=================================================="
+          echo "Yosys"
+          echo "=================================================="
+          which yosys
+          yosys -V
+
+          echo ""
+
+          echo "=================================================="
+          echo "nextpnr"
+          echo "=================================================="
+          which nextpnr-ecp5
+          nextpnr-ecp5 --version || true
+
+      ############################################################
+      # Create Report Directory
+      ############################################################
+
+      - name: Create Report Directory
+        run: |
+          mkdir -p reports/pnr
+
+      ############################################################
+      # Generate JSON
+      ############################################################
+
+      - name: Generate PnR Netlist
+        run: |
+          yosys -p "
+            read_verilog -I src \
+              src/compute/sc_multiplier.v \
+              src/compute/sign_router.v \
+              src/compute/popcount.v \
+              src/compute/positive_accumulator.v \
+              src/compute/negative_accumulator.v \
+              src/compute/final_subtractor.v \
+              synthesis/synth_compute_core.v \
+              synthesis/pnr_compute_core.v
+
+            hierarchy -check -top pnr_compute_core
+
+            synth_ecp5 \
+              -top pnr_compute_core \
+              -json reports/pnr/pnr_compute_core.json
+          "
+
+      ############################################################
+      # Verify JSON
+      ############################################################
+
+      - name: Verify Generated Files
+        run: |
+          echo "=================================================="
+          echo "Generated Files"
+          echo "=================================================="
+
+          ls -lh reports/pnr
+
+          echo ""
+
+          echo "JSON Size"
+          wc -c reports/pnr/pnr_compute_core.json
+
+      ############################################################
+      # Run nextpnr
+      ############################################################
+
+      - name: Run nextpnr
+        run: |
+          set -o pipefail
+
+          nextpnr-ecp5 \
+            --25k \
+            --package CABGA381 \
+            --json reports/pnr/pnr_compute_core.json \
+            --textcfg reports/pnr/pnr_compute_core.config \
+            2>&1 | tee reports/pnr/nextpnr_report.txt
+
+      ############################################################
+      # Print Timing Summary
+      ############################################################
+
+      - name: Print Timing Summary
+        if: always()
+        run: |
+          echo ""
+          echo "=================================================="
+          echo "Device Utilisation"
+          echo "=================================================="
+
+          grep -A30 "Device utilisation" reports/pnr/nextpnr_report.txt || true
+
+          echo ""
+          echo "=================================================="
+          echo "Timing"
+          echo "=================================================="
+
+          grep -E "Max frequency|Critical path|Slack|MHz|ns" \
+            reports/pnr/nextpnr_report.txt || true
+
+          echo ""
+          echo "=================================================="
+          echo "Last 75 Lines"
+          echo "=================================================="
+
+          tail -75 reports/pnr/nextpnr_report.txt || true
+
+      ############################################################
+      # Upload Results
+      ############################################################
+
+      - name: Upload PnR Results
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: fpga-pnr-results
+          path: reports/pnr/
